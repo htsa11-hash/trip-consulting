@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>trip-consulting</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@700&family=IBM+Plex+Mono:wght@500&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* Layout: 時刻表のような左に入力・右に結果の二段組。結果は「合計 → 予約手順 → 日ごとの行程」の順。 */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --ink:#17223b; --muted:#5b6680; --line:#d8dde7;
+  --accent:#cf4f1b; --accent-ink:#ffffff; --accent-soft:#fbe9e1;
+  --ok:#1d7a4c; --ok-soft:#e2f3ea; --est:#9a6200; --est-soft:#fbf0d9; --warn:#b3261e; --warn-soft:#fbe4e2;
+  --m-flight:#2a5bd4; --m-ferry:#0c8585; --m-rail:#6a4ec2; --m-bus:#86681a; --m-car:#c2410c; --m-other:#5b6680;
+  --f-display:"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  --f-body:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f141d; --surface:#171f2e; --ink:#e5e9f1; --muted:#97a2b9; --line:#29334a;
+  --accent:#f07a45; --accent-ink:#1a0d05; --accent-soft:#3a2216;
+  --ok:#52c48d; --ok-soft:#173326; --est:#e4a83a; --est-soft:#352a12; --warn:#ff7d71; --warn-soft:#3b1a18;
+  --m-flight:#7aa2ff; --m-ferry:#3fc9c9; --m-rail:#a993ff; --m-bus:#d6b65a; --m-car:#ff925a; --m-other:#97a2b9;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0f141d; --surface:#171f2e; --ink:#e5e9f1; --muted:#97a2b9; --line:#29334a;
+  --accent:#f07a45; --accent-ink:#1a0d05; --accent-soft:#3a2216;
+  --ok:#52c48d; --ok-soft:#173326; --est:#e4a83a; --est-soft:#352a12; --warn:#ff7d71; --warn-soft:#3b1a18;
+  --m-flight:#7aa2ff; --m-ferry:#3fc9c9; --m-rail:#a993ff; --m-bus:#d6b65a; --m-car:#ff925a; --m-other:#97a2b9;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.65;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:880px){.wrap{grid-template-columns:minmax(0,1fr)}}
+header.top{max-width:1200px;margin:0 auto 18px;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+h1{font-family:var(--f-display);font-size:1.6rem;margin:0;letter-spacing:.02em}
+.sub{color:var(--muted);font-size:.9rem}
+h2{font-family:var(--f-display);font-size:1.05rem;margin:0;letter-spacing:.03em}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px}
+aside.panel{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}
+@media (max-width:880px){aside.panel{position:static}}
+form{display:grid;gap:12px}
+label{display:grid;gap:4px;font-size:.82rem;color:var(--muted);font-weight:500}
+input,textarea,select{font:inherit;font-size:.95rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%}
+textarea{resize:vertical;min-height:72px}
+input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:8px 14px;font-weight:500}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+button:disabled{opacity:.5;cursor:not-allowed}
+.status{font-size:.85rem;color:var(--muted);min-height:1.4em}
+.status.err{color:var(--warn)}
+main{display:grid;gap:18px;min-width:0}
+.banner{font-size:.85rem;background:var(--est-soft);color:var(--est);border-radius:8px;padding:8px 12px}
+.plan-head{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.plan-head h2{font-size:1.25rem}
+.summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}
+@media (max-width:560px){.summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat{border-top:3px solid var(--line);padding-top:6px}
+.stat .k{font-size:.75rem;color:var(--muted);letter-spacing:.05em}
+.stat .v{font-family:var(--f-mono);font-size:1.25rem;font-variant-numeric:tabular-nums}
+.stat.ok{border-color:var(--ok)} .stat.est{border-color:var(--est)} .stat.total{border-color:var(--accent)}
+.legend{font-size:.78rem;color:var(--muted);margin-top:8px}
+.pill{display:inline-block;font-size:.7rem;font-weight:700;border-radius:999px;padding:1px 8px;letter-spacing:.04em;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.est{background:var(--est-soft);color:var(--est)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.info{background:var(--accent-soft);color:var(--accent)}
+.alerts{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.alerts li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;font-size:.9rem;padding:8px 10px;border-radius:8px;background:var(--bg)}
+.steps{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:0}
+.step{display:grid;grid-template-columns:28px 22px minmax(0,1fr);gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.step:first-child{border-top:0}
+.step .no{font-family:var(--f-mono);color:var(--muted);text-align:right;padding-top:1px}
+.step input[type=checkbox]{width:18px;height:18px;margin-top:4px;accent-color:var(--accent)}
+.step.done .body{opacity:.5;text-decoration:line-through}
+.step .t{font-weight:500}
+.step .meta{font-size:.82rem;color:var(--muted)}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.links a{font-size:.8rem;color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:4px;padding:1px 8px}
+.links a:hover{border-color:var(--accent)}
+.days{display:grid;gap:14px}
+.day{display:grid;grid-template-columns:72px minmax(0,1fr);gap:14px}
+.day .date{font-family:var(--f-display);text-align:right;padding-top:2px}
+.day .date .n{font-size:1.3rem;display:block;line-height:1.1}
+.day .date .w{font-size:.78rem;color:var(--muted)}
+.day .card{border-left:3px solid var(--line);padding-left:14px;display:grid;gap:10px;min-width:0}
+.day .base{font-weight:700}
+.leg{display:grid;grid-template-columns:92px minmax(0,1fr) auto;gap:10px;align-items:center;font-size:.92rem}
+@media (max-width:560px){.leg{grid-template-columns:78px minmax(0,1fr)} .leg .price{grid-column:2}}
+.time{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:.85rem}
+.mode{font-size:.72rem;font-weight:700;padding:1px 6px;border-radius:4px;color:var(--surface);margin-right:6px;white-space:nowrap}
+.price{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.price input{width:108px;font-family:var(--f-mono);text-align:right;padding:4px 8px;font-size:.88rem}
+.price input.est{border-style:dashed;border-color:var(--est)}
+.price input.ok{border-color:var(--ok)}
+.block{background:var(--bg);border-radius:8px;padding:10px 12px;display:grid;gap:6px;font-size:.9rem}
+.block .h{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between}
+.acts{margin:0;padding-left:1.1em;color:var(--muted);font-size:.88rem}
+.note{font-size:.8rem;color:var(--muted)}
+.tips{margin:8px 0 0;padding-left:1.2em;display:grid;gap:4px;font-size:.92rem}
+.revise{display:grid;gap:8px}
+.foot{font-size:.78rem;color:var(--muted)}
+.empty{color:var(--muted);text-align:center;padding:40px 10px}
+@media (prefers-reduced-motion:no-preference){.step,.leg{transition:opacity .2s}}
+</style>
+</head>
+<body>
+
+
+<header class="top">
+  <h1>trip-consulting</h1>
+  <span class="sub">回る順番・宿の場所・車を借りる日を決めて、予約する順番まで出す</span>
+</header>
+
+<div class="wrap">
+  <aside class="panel">
+    <form id="f">
+      <h2>旅の条件</h2>
+      <div class="row2">
+        <label>出発地<input id="origin" list="airports" required></label>
+        <label>帰着地<input id="ret" list="airports"></label>
+      </div>
+      <datalist id="airports">
+        <option value="東京（羽田・成田どちらも）"></option>
+        <option value="羽田空港"></option>
+        <option value="成田空港"></option>
+        <option value="大阪（伊丹・関西・神戸どちらも）"></option>
+        <option value="伊丹空港"></option>
+        <option value="関西空港"></option>
+        <option value="神戸空港"></option>
+      </datalist>
+      <div class="note" style="margin-top:-6px">「東京」とだけ入れると、羽田と成田の両方で比べます。空港を決めたいときは「羽田空港」のように選んでください。</div>
+      <div class="row2">
+        <label>出発日<input id="start" type="date" required></label>
+        <label>帰宅日<input id="end" type="date" required></label>
+      </div>
+      <div class="row2">
+        <label>人数<input id="people" type="number" min="1" max="20" required></label>
+        <label>優先すること
+          <select id="prio"><option value="最安">とにかく安く</option><option value="バランス">安さと時間のバランス</option><option value="時間優先">移動時間を短く</option></select>
+        </label>
+      </div>
+      <label>行きたい場所（1行に1つ）<textarea id="dest" rows="4" placeholder="例）那覇&#10;渡嘉敷島（日帰り）"></textarea></label>
+      <label>希望・制約<textarea id="wish" rows="4" placeholder="例）初日は仕事終わりに出発。北部の水族館に行きたい。"></textarea></label>
+      <button class="primary" id="go" type="submit">AIに頼む文章をコピー</button>
+      <div class="note">ChatGPTやClaudeなど好きなAIに貼り付けると、旅程が決まった形式で返ってきます。</div>
+      <label>AIの返答を貼り付け<textarea id="paste" rows="4" placeholder="{ &quot;title&quot;: ... } で始まる返答をそのまま貼り付け"></textarea></label>
+      <button id="load" type="button">旅程を読み込む</button>
+      <button id="export" type="button">今の旅程をコピー（チームに渡す用）</button>
+      <div class="status" id="st" role="status"></div>
+      <textarea id="copybox" rows="3" hidden aria-label="コピー用の文章"></textarea>
+    </form>
+  </aside>
+
+  <main id="out"></main>
+</div>
+
+<script>
+(function(){
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const yen = n => "¥" + Math.round(Number(n)||0).toLocaleString("ja-JP");
+const KEY = "trip-consulting-v1";
+const MODES = {
+  flight:{l:"飛行機",c:"--m-flight",book:1,q:"航空券"},
+  ferry:{l:"フェリー",c:"--m-ferry",book:2,q:"フェリー 時刻表 予約"},
+  shinkansen:{l:"新幹線",c:"--m-rail",book:5,q:"新幹線 予約"},
+  train:{l:"鉄道",c:"--m-rail",book:0,q:"乗換"},
+  bus:{l:"バス",c:"--m-bus",book:6,q:"高速バス 予約"},
+  car:{l:"車",c:"--m-car",book:0},
+  taxi:{l:"タクシー",c:"--m-other",book:0},
+  walk:{l:"徒歩",c:"--m-other",book:0},
+  other:{l:"その他",c:"--m-other",book:0}
+};
+
+/* ---------- 例のデータ（沖縄・離島1日） ---------- */
+const EXAMPLE_FORM = {origin:"東京（羽田・成田どちらも）", ret:"東京（羽田・成田どちらも）", start:"2026-11-20", end:"2026-11-23", people:4, prio:"最安",
+  dest:"那覇\n渡嘉敷島（日帰り）\n本部・美ら海水族館\n南部", wish:"初日は仕事のあとに出発するので那覇着は夜。離島の日は車を借りない。"};
+const EXAMPLE_PLAN = {
+  isExample:true,
+  title:"沖縄 3泊4日・離島1日",
+  summary:"初日は夜着なので泊港近くに2連泊し、車なしで渡嘉敷島へ。車は3日目の朝から借り、最終日に空港で返す。",
+  days:[
+    {date:"2026-11-20",base:"那覇",legs:[
+      {mode:"flight",from:"羽田",to:"那覇",dep:"18:30",arr:"21:30",price:80000,note:"LCCなら下がる可能性。4人分の目安",verify:true},
+      {mode:"train",from:"那覇空港",to:"美栄橋",dep:"21:55",arr:"22:15",price:1440,note:"ゆいレール"}],
+      activities:["移動のみ"],car:{needed:false,reason:"夜着で使い道がない"},
+      stay:{area:"那覇・泊港周辺",near:"泊港（翌朝のフェリー乗り場）",type:"hotel",price:28000,reason:"翌朝のフェリーに徒歩で行ける。2泊分"}},
+    {date:"2026-11-21",base:"渡嘉敷島",legs:[
+      {mode:"ferry",from:"泊港",to:"渡嘉敷港",dep:"10:00",arr:"11:10",price:14000,note:"往復・4人分の目安",verify:true},
+      {mode:"ferry",from:"渡嘉敷港",to:"泊港",dep:"16:00",arr:"17:10",price:0,note:"往復料金に含む",verify:true}],
+      activities:["阿波連ビーチ","島内はレンタサイクルかバス"],car:{needed:false,reason:"離島の日。那覇に車を置くと駐車場代だけかかる"},
+      stay:{area:"那覇・泊港周辺",near:"同じ宿の2泊目",type:"hotel",price:0,reason:"前日の宿に連泊（料金は前日に含む）"}},
+    {date:"2026-11-22",base:"本部",legs:[
+      {mode:"car",from:"那覇市内",to:"本部",dep:"08:30",arr:"10:30",price:0,note:"高速を使う場合は別途"}],
+      activities:["美ら海水族館","古宇利島"],car:{needed:true,reason:"北部は車でないと回りにくい"},
+      stay:{area:"恩納村",near:"翌日南部へ向かう途中",type:"airbnb",price:24000,reason:"4人なら1棟貸しが割安になりやすい"}},
+    {date:"2026-11-23",base:"南部",legs:[
+      {mode:"car",from:"恩納村",to:"南部",dep:"09:00",arr:"10:15",price:0},
+      {mode:"flight",from:"那覇",to:"羽田",dep:"16:30",arr:"19:00",price:76000,note:"4人分の目安",verify:true}],
+      activities:["斎場御嶽","空港近くで給油して返却"],car:{needed:true,reason:"南部観光と空港への移動"},stay:null}
+  ],
+  rentals:[{pickupDate:"2026-11-22",pickupTime:"08:00",pickupPlace:"那覇市内の営業所",returnDate:"2026-11-23",returnTime:"14:30",returnPlace:"那覇空港の営業所",pricePerDay:7000,note:"コンパクトカー・免責補償込みの目安"}],
+  tips:["航空券と宿をセットで予約する場合の総額とも比べる","車は離島から戻った翌朝に受け取ると、駐車場代と1日分の料金が浮く","フェリーは天候で欠航することがあるので、泊港の宿は無料キャンセルのプランを選ぶ"],
+  aiWarnings:["フェリーの時刻は季節で変わる。予約前に運航会社の時刻表で確認"]
+};
+
+/* ---------- 状態 ---------- */
+let state = {form:EXAMPLE_FORM, plan:EXAMPLE_PLAN, done:{}};
+try{ const s = JSON.parse(localStorage.getItem(KEY)||"null"); if(s && s.plan) state = s; }catch(e){}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+normalize(state.plan);
+
+function normalize(p){
+  if(!p) return;
+  p.days = Array.isArray(p.days)? p.days : [];
+  p.rentals = Array.isArray(p.rentals)? p.rentals : [];
+  p.tips = Array.isArray(p.tips)? p.tips : [];
+  p.aiWarnings = Array.isArray(p.aiWarnings)? p.aiWarnings : [];
+  p.days.forEach((d,i)=>{
+    d.legs = Array.isArray(d.legs)? d.legs : [];
+    d.activities = Array.isArray(d.activities)? d.activities : [];
+    d.car = d.car || {needed:false};
+    d.legs.forEach((l,j)=>{
+      if(!MODES[l.mode]) l.mode = "other";
+      l.id = l.id || ("L"+i+"_"+j);
+      l.price = Number(l.price)||0;
+      if(l.est==null) l.est = l.price;
+      l.pt = l.pt || "est";
+    });
+    if(d.stay){ d.stay.price = Number(d.stay.price)||0; if(d.stay.est==null) d.stay.est=d.stay.price; d.stay.pt=d.stay.pt||"est"; }
+  });
+  p.rentals.forEach((r,k)=>{
+    r.id = r.id || ("R"+k);
+    r.pricePerDay = Number(r.pricePerDay)||0;
+    if(r.total==null){ r.pt="est"; }
+  });
+}
+
+/* ---------- 計算（AIではなくプログラムで判定） ---------- */
+const dt = (d,t) => new Date(d+"T"+(t||"00:00")+":00");
+const toMin = t => { if(!t) return null; const [h,m]=t.split(":").map(Number); return h*60+m; };
+const addDays = (d,n) => { const x=new Date(d+"T00:00:00"); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+function rentalCalc(r){
+  const hrs = (dt(r.returnDate,r.returnTime)-dt(r.pickupDate,r.pickupTime))/36e5;
+  const blocks = Math.max(1, Math.ceil(hrs/24 - 1e-9));
+  const est = blocks*r.pricePerDay;
+  const over = hrs - (blocks-1)*24; // 最後の24時間枠で使っている時間
+  return {hrs, blocks, est, price: r.pt==="ok"? Number(r.total)||0 : est, over};
+}
+function analyze(p){
+  const alerts = [];
+  const n = p.days.length;
+  const lastFlightDay = p.days.length-1;
+  p.days.forEach((d,i)=>{
+    const legs = d.legs.filter(l=>l.dep).slice().sort((a,b)=>toMin(a.dep)-toMin(b.dep));
+    for(let k=1;k<legs.length;k++){
+      const prev=legs[k-1], cur=legs[k];
+      const gap = toMin(cur.dep)-toMin(prev.arr);
+      if(prev.arr && gap<0) alerts.push({lv:"warn",t:`${md(d.date)}：${prev.to}着 ${prev.arr} の前に ${cur.from}発 ${cur.dep} が出てしまう。この乗り継ぎは成立しない`});
+      else if(prev.arr && cur.mode==="flight" && gap<60) alerts.push({lv:"warn",t:`${md(d.date)}：飛行機の出発まで${gap}分しかない。空港での手続きを考えると60分以上ほしい`});
+      else if(prev.arr && cur.mode==="ferry" && gap<20) alerts.push({lv:"warn",t:`${md(d.date)}：フェリーの出発まで${gap}分。乗船手続きに間に合わない可能性`});
+    }
+    if(d.legs.some(l=>l.mode==="ferry") && i>=n-2 && n>1)
+      alerts.push({lv:"warn",t:`${md(d.date)}：離島・フェリーの日が最終日に近い。欠航すると帰りの便に間に合わない。前半に移せないか検討`});
+    if(i<n-1 && !d.stay) alerts.push({lv:"warn",t:`${md(d.date)}：宿が決まっていない`});
+  });
+  // レンタカーの過不足
+  const covered = new Set(), coveredFull = new Set();
+  p.rentals.forEach(r=>{
+    let d=r.pickupDate; let guard=0;
+    while(d<=r.returnDate && guard++<60){ covered.add(d); d=addDays(d,1); }
+    const c = rentalCalc(r);
+    if(c.over>0 && c.over<=3 && c.blocks>1)
+      alerts.push({lv:"info",t:`レンタカー：あと${fmtH(c.over)}短くすると${c.blocks-1}日分の料金で済む（受取を遅らせるか返却を早める）。目安 ${yen(r.pricePerDay)} 安くなる`});
+  });
+  p.days.forEach(d=>{
+    if(d.car.needed && !covered.has(d.date)) alerts.push({lv:"warn",t:`${md(d.date)}：車が必要な日なのにレンタカーの予定がない`});
+    if(!d.car.needed && covered.has(d.date)){
+      const r = p.rentals.find(r=>r.pickupDate<=d.date && d.date<=r.returnDate);
+      const edge = r && (r.pickupDate===d.date || r.returnDate===d.date);
+      if(!edge) alerts.push({lv:"warn",t:`${md(d.date)}：車を使わない日もレンタカーを借りている。いったん返すか、借りる日をずらすと安くなる`});
+    }
+  });
+  p.aiWarnings.forEach(t=>alerts.push({lv:"info",t}));
+  return alerts;
+}
+function totals(p){
+  let ok=0, est=0;
+  const add=(v,pt)=>{ if(pt==="ok") ok+=v; else est+=v; };
+  p.days.forEach(d=>{ d.legs.forEach(l=>add(l.price,l.pt)); if(d.stay) add(d.stay.price,d.stay.pt); });
+  p.rentals.forEach(r=>{ const c=rentalCalc(r); add(c.price, r.pt); });
+  return {ok, est, all:ok+est};
+}
+function steps(p, people){
+  const out = [];
+  p.days.forEach((d,i)=>{
+    d.legs.forEach(l=>{
+      const m = MODES[l.mode]; if(!m.book) return;
+      if(l.mode==="ferry" && l.price===0 && l.note && /含/.test(l.note)) return;
+      out.push({key:l.id, pr:m.book, date:d.date, t:`${m.l}　${l.from} → ${l.to}`, meta:`${md(d.date)} ${l.dep||""}発` ,
+        links: linksFor(l.mode,{from:l.from,to:l.to,date:d.date,people})});
+    });
+  });
+  // 宿：同じエリアの連泊はまとめる
+  for(let i=0;i<p.days.length;i++){
+    const d=p.days[i]; if(!d.stay) continue;
+    let j=i; while(j+1<p.days.length && p.days[j+1].stay && p.days[j+1].stay.area===d.stay.area) j++;
+    const nights=j-i+1, out_=addDays(d.date,nights);
+    out.push({key:"S"+i, pr:3, date:d.date, t:`宿　${d.stay.area}（${nights}泊）`, meta:`${md(d.date)} チェックイン　${typeLabel(d.stay.type)}　${d.stay.near?("・"+d.stay.near):""}`,
+      links: stayLinks(d.stay.area, d.date, out_, people)});
+    i=j;
+  }
+  p.rentals.forEach(r=>{
+    out.push({key:r.id, pr:4, date:r.pickupDate, t:`レンタカー　${r.pickupPlace} → ${r.returnPlace}`, meta:`${md(r.pickupDate)} ${r.pickupTime} 受取 ／ ${md(r.returnDate)} ${r.returnTime} 返却`,
+      links:[{l:"レンタカーを比較",u:g(`レンタカー 比較 ${r.pickupPlace} ${r.pickupDate}`)}]});
+  });
+  return out.sort((a,b)=>a.pr-b.pr || a.date.localeCompare(b.date));
+}
+const PR_REASON = {1:"便数が限られ、直前ほど高くなりやすい",2:"席数が少なく、旅程の骨格になる",3:"無料キャンセル可のプランで先に押さえる",4:"宿と便が決まってから",5:"発売日（乗車日の1か月前）以降に",6:"直前でも取りやすい"};
+
+/* ---------- リンク ---------- */
+const g = q => "https://www.google.com/search?q="+encodeURIComponent(q);
+/* 出発地・帰着地が「東京（両方）」なら、検索リンクは羽田・成田を区別せず東京で探す */
+const isBoth = v => /どちらも|両方/.test(v||"") || /^\s*(東京|大阪)(都|府|市)?\s*$/.test(v||"");
+const CITY = [[/羽田|成田|東京/,"東京"],[/伊丹|関西|関空|神戸|大阪/,"大阪"]];
+function cityIfBoth(name){
+  const f = state.form||{};
+  for(const [re,city] of CITY){ if(re.test(name) && [f.origin,f.ret].some(v=>isBoth(v)&&re.test(v))) return city; }
+  return name;
+}
+function linksFor(mode,{from,to,date,people}){
+  if(mode==="flight"){ from=cityIfBoth(from); to=cityIfBoth(to); }
+  if(mode==="flight") return [
+    {l:"Googleフライト",u:"https://www.google.com/travel/flights?q="+encodeURIComponent(`${from}発 ${to}行き ${date} 片道 ${people}名`)},
+    {l:"ツアー＋宿のセットも比較",u:g(`${to} 航空券 ホテル セット ${date}`)}];
+  const m=MODES[mode];
+  return [{l:"検索",u:g(`${from} ${to} ${m.q||""} ${date}`)}];
+}
+function stayLinks(area,inD,outD,people){
+  return [
+    {l:"楽天トラベル",u:g(`楽天トラベル ${area}`)},
+    {l:"Booking.com",u:`https://www.booking.com/searchresults.ja.html?ss=${encodeURIComponent(area)}&checkin=${inD}&checkout=${outD}&group_adults=${people}&no_rooms=1`},
+    {l:"Airbnb",u:`https://www.airbnb.jp/s/${encodeURIComponent(area)}/homes?checkin=${inD}&checkout=${outD}&adults=${people}`}];
+}
+const typeLabel = t => ({hotel:"ホテル",airbnb:"民泊・1棟貸し",guesthouse:"ゲストハウス",ryokan:"旅館"}[t]||"宿");
+const WD="日月火水木金土";
+function md(d){ const x=new Date(d+"T00:00:00"); return `${x.getMonth()+1}/${x.getDate()}(${WD[x.getDay()]})`; }
+function fmtH(h){ const m=Math.round(h*60); return m>=60? `${Math.floor(m/60)}時間${m%60? (m%60)+"分":""}` : `${m}分`; }
+
+/* ---------- 表示 ---------- */
+function priceInput(id, obj, extra=""){
+  const v = obj.pt==="ok"? (obj.total ?? obj.price) : (obj.price ?? 0);
+  return `<input class="${obj.pt==="ok"?"ok":"est"}" inputmode="numeric" data-price="${esc(id)}" value="${esc(Math.round(v))}" aria-label="金額${extra}">
+    <span class="pill ${obj.pt==="ok"?"ok":"est"}">${obj.pt==="ok"?"確定":"推定"}</span>`;
+}
+function render(){
+  const p = state.plan, out = $("#out");
+  if(!p){ out.innerHTML = `<div class="panel empty">左で依頼文をコピーしてAIに貼り、返答を貼り付けると、ここに旅程が出ます。</div>`; return; }
+  const people = Number(state.form.people)||1;
+  const t = totals(p), alerts = analyze(p), st = steps(p, people);
+  const doneCount = st.filter(s=>state.done[s.key]).length;
+  let h = "";
+  if(p.isExample) h += `<div class="banner">これは表示例です（沖縄・4人）。金額と時刻はすべて目安で、実在の便や料金ではありません。左で条件を入れて依頼文をコピーし、AIの返答を貼り付けると自分の旅程になります。</div>`;
+  h += `<section class="panel">
+    <div class="plan-head"><h2>${esc(p.title||"旅程")}</h2><span class="sub">${esc(state.form.start)} 〜 ${esc(state.form.end)}・${people}人</span></div>
+    <p style="margin:6px 0 0">${esc(p.summary||"")}</p>
+    <div class="summary">
+      <div class="stat total"><div class="k">総額</div><div class="v">${yen(t.all)}</div></div>
+      <div class="stat"><div class="k">1人あたり</div><div class="v">${yen(t.all/people)}</div></div>
+      <div class="stat ok"><div class="k">うち確定</div><div class="v">${yen(t.ok)}</div></div>
+      <div class="stat est"><div class="k">うち推定</div><div class="v">${yen(t.est)}</div></div>
+    </div>
+    <div class="legend">金額はすべて人数分の合計。AIが出した金額は「推定」です。実際の料金を調べたら金額欄に入力すると「確定」になり、総額に反映されます（空欄にすると推定に戻ります）。</div>
+  </section>`;
+  if(alerts.length) h += `<section class="panel"><h2>確認すること</h2><ul class="alerts" style="margin-top:10px">${alerts.map(a=>
+    `<li><span class="pill ${a.lv==="warn"?"warn":"info"}">${a.lv==="warn"?"要対応":"ヒント"}</span><span>${esc(a.t)}</span></li>`).join("")}</ul></section>`;
+  h += `<section class="panel"><div class="plan-head"><h2>予約する順番</h2><span class="sub">${doneCount}/${st.length} 完了</span></div>
+    <ol class="steps">${st.map((s,i)=>`<li class="step ${state.done[s.key]?"done":""}">
+      <span class="no">${i+1}</span><input type="checkbox" id="chk-${esc(s.key)}" data-done="${esc(s.key)}" ${state.done[s.key]?"checked":""} aria-label="予約済み">
+      <div class="body"><div class="t">${esc(s.t)}</div><div class="meta">${esc(s.meta)}　—　${esc(PR_REASON[s.pr]||"")}</div>
+      <div class="links">${s.links.map(l=>`<a href="${esc(l.u)}" target="_blank" rel="noopener">${esc(l.l)}</a>`).join("")}</div></div></li>`).join("")}</ol>
+  </section>`;
+  h += `<section class="panel"><h2>日ごとの行程</h2><div class="days" style="margin-top:14px">${p.days.map((d,i)=>dayHTML(d,i,p)).join("")}</div></section>`;
+  if(p.tips.length) h += `<section class="panel"><h2>安くするポイント</h2><ul class="tips">${p.tips.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section>`;
+  h += `<section class="panel revise"><h2>旅程を直す</h2>
+    <label for="rv">直してほしいこと<textarea id="rv" rows="3" placeholder="例）2日目も那覇に泊まりたい／レンタカーをもっと短く"></textarea></label>
+    <div><button id="rvgo" type="button">直す用の文章をコピー</button></div>
+    <div class="foot">今の旅程と確定した金額を含めた依頼文をコピーします。AIの返答は左の「AIの返答を貼り付け」から読み込みます。時刻と金額は必ず各社のサイトで確かめてください。</div></section>`;
+  out.innerHTML = h;
+}
+function dayHTML(d,i,p){
+  const x=new Date(d.date+"T00:00:00");
+  const legs = d.legs.slice().sort((a,b)=>(toMin(a.dep)??9999)-(toMin(b.dep)??9999));
+  const rentHere = p.rentals.filter(r=>r.pickupDate===d.date);
+  return `<div class="day"><div class="date"><span class="n">${x.getMonth()+1}/${x.getDate()}</span><span class="w">${WD[x.getDay()]}曜・${i+1}日目</span></div>
+  <div class="card">
+    <div><span class="base">${esc(d.base||"")}</span>　<span class="pill ${d.car.needed?"info":"ok"}">${d.car.needed?"車あり":"車なし"}</span> <span class="note">${esc(d.car.reason||"")}</span></div>
+    ${legs.map(l=>{const m=MODES[l.mode]; return `<div class="leg">
+      <span class="time">${esc(l.dep||"--:--")}–${esc(l.arr||"--:--")}</span>
+      <span><span class="mode" style="background:var(${m.c})">${m.l}</span>${esc(l.from)} → ${esc(l.to)}${l.note?`<span class="note">　${esc(l.note)}</span>`:""}${l.verify?` <span class="pill est">時刻要確認</span>`:""}</span>
+      <span class="price">${priceInput(l.id,l)}</span></div>`;}).join("")}
+    ${d.activities.length?`<ul class="acts">${d.activities.map(a=>`<li>${esc(a)}</li>`).join("")}</ul>`:""}
+    ${rentHere.map(r=>{const c=rentalCalc(r); return `<div class="block"><div class="h"><strong>レンタカー</strong><span class="price">${priceInput(r.id,{pt:r.pt,price:c.price,total:r.total})}</span></div>
+      <div>${esc(r.pickupPlace)} ${md(r.pickupDate)} ${esc(r.pickupTime)} 受取 → ${esc(r.returnPlace)} ${md(r.returnDate)} ${esc(r.returnTime)} 返却</div>
+      <div class="note">${fmtH(c.hrs)} ＝ 24時間料金 ${c.blocks}回分（1日 ${yen(r.pricePerDay)} の目安で計算）${r.note?"・"+esc(r.note):""}</div></div>`;}).join("")}
+    ${d.stay?`<div class="block"><div class="h"><strong>宿　${esc(d.stay.area)}</strong><span class="price">${priceInput("S"+i,d.stay)}</span></div>
+      <div class="note">${esc(typeLabel(d.stay.type))}${d.stay.near?"・"+esc(d.stay.near):""}　${esc(d.stay.reason||"")}</div></div>`:""}
+  </div></div>`;
+}
+
+/* ---------- 入力 ---------- */
+function fillForm(){ const f=state.form; ["origin","ret","start","end","people","prio","dest","wish"].forEach(k=>{ const el=$("#"+k); if(el) el.value = f[k] ?? ""; }); }
+function readForm(){ const f={}; ["origin","ret","start","end","people","prio","dest","wish"].forEach(k=>f[k]=$("#"+k).value); return f; }
+function findPriceTarget(id){
+  const p=state.plan;
+  for(const d of p.days){ const l=d.legs.find(l=>l.id===id); if(l) return {o:l,kind:"leg"}; }
+  if(id[0]==="S"){ const d=p.days[Number(id.slice(1))]; if(d&&d.stay) return {o:d.stay,kind:"stay"}; }
+  const r=p.rentals.find(r=>r.id===id); if(r) return {o:r,kind:"rental"};
+  return null;
+}
+$("#out").addEventListener("change", e=>{
+  const el=e.target;
+  if(el.dataset.done){ state.done[el.dataset.done]=el.checked; save(); render(); return; }
+  if(el.dataset.price){
+    const t=findPriceTarget(el.dataset.price); if(!t) return;
+    const raw=el.value.replace(/[^\d]/g,"");
+    if(t.kind==="rental"){ if(raw===""){ t.o.pt="est"; delete t.o.total; } else { t.o.pt="ok"; t.o.total=Number(raw); } }
+    else { if(raw===""){ t.o.pt="est"; t.o.price=t.o.est; } else { t.o.pt="ok"; t.o.price=Number(raw); } }
+    state.plan.isExample=false; save(); render();
+  }
+});
+$("#out").addEventListener("click", e=>{ if(e.target.id==="rvgo") revise(); });
+
+/* ---------- AIへの依頼文の作成と、返答の読み込み（サイト自体はAIを呼ばない） ---------- */
+const st=$("#st");
+function say(msg, err){ st.className = "status"+(err?" err":""); st.textContent = msg; }
+async function copyText(text, okMsg){
+  const box=$("#copybox"); box.value=text;
+  try{ await navigator.clipboard.writeText(text); box.hidden=true; say(okMsg); }
+  catch(e){ box.hidden=false; box.focus(); box.select(); say("自動でコピーできませんでした。下の欄が選択されているので、そのままコピーしてください。"); }
+}
+function parsePlan(raw){
+  let s=String(raw||"").trim();
+  const fence=s.match(/```(?:json)?\s*([\s\S]*?)```/); if(fence) s=fence[1];
+  const a=s.indexOf("{"), b=s.lastIndexOf("}"); if(a<0||b<a) throw 0;
+  const p=JSON.parse(s.slice(a,b+1));
+  const plan = p && p.plan ? p.plan : p;
+  if(!plan || !Array.isArray(plan.days) || !plan.days.length) throw 0;
+  return p;
+}
+$("#load").onclick=()=>{
+  try{
+    const obj=parsePlan($("#paste").value);
+    const plan = obj.plan && obj.form ? obj.plan : obj;
+    if(obj.plan && obj.form){ state.form=obj.form; fillForm(); }
+    normalize(plan); plan.isExample=false; state.plan=plan; state.done=obj.done||{}; save(); render();
+    $("#paste").value=""; say("読み込みました。「確認すること」から見てください。");
+    $("#out").scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(e){ say("旅程の形式として読めませんでした。AIの返答を最初の { から最後の } まで、そのまま貼り付けてください。", true); }
+};
+$("#export").onclick=()=>{
+  const p=JSON.parse(JSON.stringify(state.plan||{})); delete p.isExample;
+  copyText(JSON.stringify({form:state.form, plan:p, done:state.done}), "コピーしました。受け取った人は「AIの返答を貼り付け」に貼って読み込めます。");
+};
+
+const SCHEMA = `{
+ "title": "短い旅程名",
+ "summary": "旅程の要点を1〜2文",
+ "days": [ { "date":"YYYY-MM-DD", "base":"その日の主な場所",
+   "legs":[ {"mode":"flight|ferry|shinkansen|train|bus|car|taxi|walk|other","from":"","to":"","dep":"HH:MM","arr":"HH:MM","price":人数分合計の円(整数),"note":"補足","verify":時刻や便の存在に自信がなければtrue} ],
+   "activities":["その日にすること"],
+   "car":{"needed":true/false,"reason":"理由"},
+   "stay": {"area":"宿のエリア","near":"翌日の出発地点など近くにある理由の場所","type":"hotel|airbnb|guesthouse|ryokan","price":1泊の人数分合計の円,"reason":"そのエリアを選んだ理由"} または null（最終日）
+ } ],
+ "rentals":[ {"pickupDate":"YYYY-MM-DD","pickupTime":"HH:MM","pickupPlace":"","returnDate":"YYYY-MM-DD","returnTime":"HH:MM","returnPlace":"","pricePerDay":24時間あたりの円,"note":""} ],
+ "tips":["この旅程で費用を抑える具体的なポイント"],
+ "aiWarnings":["予約前に確かめるべきこと"]
+}`;
+const RULES = `あなたは日本国内旅行の段取りを組む担当です。目的は、必要最小限の費用でムダなく動ける旅程を作ること。
+守ること:
+- 行きたい場所を回る順番は、移動の総費用と時間が最小になるよう並べ替えてよい。直行の交通がない区間は経由地や別の手段（新幹線・高速バス・フェリー・車）で結ぶ。順番を変えれば経由せずに済むならそちらを選ぶ。
+- 出発地・帰着地が「東京」や「どちらも」のように都市単位なら、その都市の全空港（東京なら羽田と成田、大阪なら伊丹・関西・神戸）を比べ、空港までの交通費と時間も足した総額で安いほうを選ぶ。選んだ空港と理由を note に書き、自宅側から空港までの移動も legs に入れる。空港名が指定されていればその空港だけを使う。
+- 到着が遅い日は、空港ではなく翌朝の出発地点（港・駅など）の近くに宿を取る。
+- 車は本当に必要な日だけ借りる。離島の日や市街地だけの日は借りない。レンタカーは24時間単位の料金が多いので、受取と返却の時刻を24時間の倍数に収まるよう調整する。乗り捨ての可否も考える。
+- 欠航しやすいフェリー・離島便の日は、帰りの便の前日や当日に置かない。
+- 3〜4人以上なら民泊・1棟貸しも検討し、1〜2人ならビジネスホテルやゲストハウスを優先する。
+- 航空券と宿のセット予約のほうが安くなりそうなら tips に書く。
+- 金額はすべて推定の目安として、人数分の合計を円の整数で入れる。分からない値をそれらしく作らず、自信のない時刻や便は verify を true にする。
+- 時刻はHH:MM（24時間表記）。日付は旅程の期間内。
+- 出力はJSONのみ。説明文は書かない。形式:
+${SCHEMA}`;
+
+$("#f").addEventListener("submit", e=>{
+  e.preventDefault();
+  state.form = readForm(); save();
+  const f=state.form;
+  copyText(`${RULES}\n\n旅の条件:\n出発地: ${f.origin}\n帰着地: ${f.ret||f.origin}\n期間: ${f.start} 〜 ${f.end}\n人数: ${f.people}人\n優先: ${f.prio}\n行きたい場所:\n${f.dest}\n希望・制約:\n${f.wish}`,
+    "コピーしました。AIに貼り付けて、返ってきた文章を下の欄に貼ってください。");
+});
+function revise(){
+  const msg=($("#rv")?.value||"").trim(); if(!msg){ $("#rv")?.focus(); return; }
+  const p=JSON.parse(JSON.stringify(state.plan)); delete p.isExample;
+  const fixed=[]; p.days.forEach(d=>{ d.legs.forEach(l=>{ if(l.pt==="ok") fixed.push(`${d.date} ${l.from}→${l.to} ${l.price}円（確定）`); }); if(d.stay&&d.stay.pt==="ok") fixed.push(`${d.date} 宿 ${d.stay.area} ${d.stay.price}円（確定）`); });
+  const f=state.form;
+  copyText(`${RULES}\n\n旅の条件: ${f.origin}発、${f.start}〜${f.end}、${f.people}人、優先は${f.prio}。\n今の旅程(JSON):\n${JSON.stringify(p)}\n\nユーザーが調べて確定した金額（変えずに使う）:\n${fixed.join("\n")||"なし"}\n\n直してほしいこと:\n${msg}\n\n直した旅程全体を同じ形式のJSONで返す。`,
+    "直す用の文章をコピーしました。AIに貼り付けて、返答を左の欄に貼って読み込んでください。");
+}
+
+fillForm(); render();
+})();
+</script>
+
+</body>
+</html>
